@@ -15,7 +15,8 @@ const { default: union } = require('@turf/union')
 const { kebabCase } = require('lodash')
 
 
-function splitfiles(preprocessor){
+function splitfiles(preprocessor)
+{
     return through2.obj(function(file, enc, next){
 		var data = JSON.parse(file.contents.toString('utf8'));
 		var base = path.join(file.path, '..');
