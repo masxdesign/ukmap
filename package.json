@@ -14,7 +14,10 @@
     "@turf/simplify": "^5.1.5",
     "@turf/transform-scale": "^5.1.5",
     "@turf/union": "^6.0.3",
-    "lodash": "^4.17.20"
+    "gulp-if": "^3.0.0",
+    "lazypipe": "^1.0.2",
+    "lodash": "^4.17.20",
+    "polylabel": "^1.1.0"
   },
   "devDependencies": {
     "del": "^6.0.0",
