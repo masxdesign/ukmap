@@ -11,12 +11,15 @@ const path = require('path')
 const through2 = require('through2')
 const File = require('vinyl')
 
-const { polygon, featureCollection, feature } = require('@turf/helpers')
+const { polygon, featureCollection, multiPolygon } = require('@turf/helpers')
 const { default: union } = require('@turf/union')
 const { default: turfarea} = require('@turf/area')
 const { kebabCase } = require('lodash')
 const { default: polylabel } = require('polylabel')
 const lazypipe = require('lazypipe')
+
+const E15 = require('./src/r/E15.json')
+const PE31 = require('./src/r/PE31.json')
 
 
 
@@ -64,6 +67,19 @@ function makeTransform2json(geojson)
             }
     
             return [label, multipolygon]
+        })
+
+        json = json.map((item) => {
+            
+            const [label] = item
+            
+            if(label === 'E15') 
+                return [label, geojson ? E15: []]
+            
+            if(label === 'PE31') 
+                return [label, geojson ? PE31: []]
+            
+            return item
         })
 
         if(geojson)
