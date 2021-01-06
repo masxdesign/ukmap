@@ -21,8 +21,6 @@ const lazypipe = require('lazypipe')
 const E15 = require('./src/r/E15.json')
 const PE31 = require('./src/r/PE31.json')
 
-
-
 function splitfiles(preprocessor)
 {
     return through2.obj(function(file, enc, next){
@@ -45,88 +43,11 @@ function splitfiles(preprocessor)
 	})
 }
 
-function makeTransform2json(geojson)
-{
-    return function (content) {
-        let json = content.replace(/^"|"$/, "").split("*").map((postcodes) => {
-            const [label, coordinates] = postcodes.split("|")
-            
-            let multipolygon = coordinates.split("^").map((item) => {
-                let polygon = item.split(" ").map((item) => {
-                    return item.split(",").reverse().map((coor) => parseFloat(coor))
-                })
-    
-                polygon.push(polygon[0])
-    
-                return polygon
-            })
-
-            if(geojson)
-            {
-                multipolygon = polygon(multipolygon, { label })
-            }
-    
-            return [label, multipolygon]
-        })
-
-        json = json.map((item) => {
-            
-            const [label] = item
-            
-            if(label === 'E15') 
-                return [label, geojson ? E15: []]
-            
-            if(label === 'PE31') 
-                return [label, geojson ? PE31: []]
-            
-            return item
-        })
-
-        if(geojson)
-        {
-            json = featureCollection(json.map(([, multipolygon]) => {
-                return multipolygon
-            }))
-        }
-    
-        return JSON.stringify(json)
-    }
-}
-
-const flat2JsonTask = (geojson) => lazypipe()
-    .pipe(replace, /^pc\(|\)$/i, '')
-    .pipe(() => change(makeTransform2json(geojson)))()
-
-function clean()
-{
-    return del(['build/**'])
-}
-
-function pcPoly2GeoJson()
-{
-    return src('src/p/*.js')
-        .pipe(flat2JsonTask(true))
-        .pipe(rename({ extname: ".json" }))
-        .pipe(dest(`build/postcodes`))
-}
-
-const regions = {
-    "N Ireland": "BT",
-    "Midlands": "CH,CW,HR,WR,DY,WV,TF,ST,WS,B,CV,DE,NG,LE,NN,PE,LN,NR",//"SY"
-    "Wales": "NP,CF,SA,LL,LD,SY",
-    "Scotland": "AB,DD,EH,FK,G,IV,KA,KW,KY,ML,PA,PH,TD,DG",
-    "North West England": "CA,LA,BB,PR,BL,OL,M,SK,WA,WN,L,FY",
-    "North East England": "NE,DH,SR,DL,TS,YO,HU,DN,S,HD,WF,HX,BD,LS,HG",
-    "South East England": "OX,RG,SO,PO,GU,SL,HP,LU,MK,SG,AL,WD,HA,UB,TW,KT,RH,BN,TN,CT,ME,DA,BR,CR,SM,EN,CB,IP,CO,CM,SS,IG,RM",
-    "South West England": "TR,PL,TA,DT,BH,SP,BA,BS,SN,GL,EX,TQ",
-    "London": "EC,WC,W,SW,SE,E,N,NW"
-}
-
 function geojson__getCenter(feature)
 {
     let center = []
 
-    if(feature.properties.label === 'South East England')
+    if(feature.properties.name === 'South East England')
     {
         return [51.94540024,-0.01763881]
     }
@@ -156,12 +77,123 @@ function geojson__getCenter(feature)
     return center.reverse()
 }
 
+function makeTransform2json(geojson)
+{
+    return function (content) {
+        let json = content.replace(/^"|"$/, "").split("*").map((postcodes) => {
+            const [name, coordinates] = postcodes.split("|")
+            
+            let multipolygon = coordinates.split("^").map((item) => {
+                let polygon = item.split(" ").map((item) => {
+                    return item.split(",").reverse().map((coor) => parseFloat(coor))
+                })
+    
+                polygon.push(polygon[0])
+    
+                return polygon
+            })
+
+            if(geojson)
+            {
+                multipolygon = polygon(multipolygon, { name })
+            }
+    
+            return [name, multipolygon]
+        })
+
+        json = json.map((item) => {
+            
+            const [name] = item
+            
+            if(name === 'E15') 
+                return [name, geojson ? E15: []]
+            
+            if(name === 'PE31') 
+                return [name, geojson ? PE31: []]
+            
+            return item
+        })
+
+        if(geojson)
+        {
+            json = featureCollection(json.map(([, multipolygon]) => {
+                return multipolygon
+            }))
+        }
+    
+        return JSON.stringify(json)
+    }
+}
+
+const flat2JsonTask = (geojson) => lazypipe()
+    .pipe(replace, /^pc\(|\)$/i, '')
+    .pipe(() => change(makeTransform2json(geojson)))()
+
+function clean()
+{
+    return del(['build/**', '../postcodemap/src/data/**'], { force: true })
+}
+
+// function pcPoly2GeoJson()
+// {
+//     return src('src/p/*.js')
+//         .pipe(flat2JsonTask(true))
+//         .pipe(rename({ extname: ".json" }))
+//         .pipe(dest(`build/postcodes`))
+// }
+
+function single_postcodes_transfer()
+{
+    function modify(name, data)
+    {
+        data.name = name
+        data.features.forEach((feature, index) => {
+            const { name } = feature.properties
+            
+            if(feature.geometry.type === 'GeometryCollection')
+            {
+                feature.geometry = multiPolygon(feature.geometry.geometries.map((item) => item.coordinates)).geometry
+            }
+
+            feature.properties = { name, index, center: geojson__getCenter(feature) }
+        })
+
+        return JSON.stringify(data)
+    }
+
+    return src('src/g/*.geojson')
+        .pipe(through2.obj(function(file, enc, next)
+        {
+            const name = file.basename.replace(file.extname, '')
+
+            let data = JSON.parse(file.contents.toString('utf8'))
+
+            file.contents = new Buffer.from(modify(name, data))
+
+            next(null, file)
+        }))
+        .pipe(rename({ extname: ".json" }))
+        .pipe(dest(`build/postcodes`))
+}
+
+const regions = {
+    "N Ireland": "BT",
+    "Midlands": "CH,CW,HR,WR,DY,WV,TF,ST,WS,B,CV,DE,NG,LE,NN,PE,LN,NR",//"SY"
+    "Wales": "NP,CF,SA,LL,LD,SY",
+    "Scotland": "AB,DD,EH,FK,G,IV,KA,KW,KY,ML,PA,PH,TD,DG",
+    "North West England": "CA,LA,BB,PR,BL,OL,M,SK,WA,WN,L,FY",
+    "North East England": "NE,DH,SR,DL,TS,YO,HU,DN,S,HD,WF,HX,BD,LS,HG",
+    "South East England": "OX,RG,SO,PO,GU,SL,HP,LU,MK,SG,AL,WD,HA,UB,TW,KT,RH,BN,TN,CT,ME,DA,BR,CR,SM,EN,CB,IP,CO,CM,SS,IG,RM",
+    "South West England": "TR,PL,TA,DT,BH,SP,BA,BS,SN,GL,EX,TQ",
+    "London": "EC,WC,W,SW,SE,E,N,NW"
+}
+
 function _generate_regions(data, addFile)
 {
     const pM = Object.fromEntries(data)
 
-    for (const [label, list] of Object.entries(regions)) {
-        const basename = kebabCase(label)
+    for (const [name, list] of Object.entries(regions)) {
+        const basename = kebabCase(name)
         const postcodes = list.split(",")
 
         let combined
@@ -169,29 +201,34 @@ function _generate_regions(data, addFile)
         for (const postcode of postcodes) {
             if(!!pM[postcode])
             {
-                let feature = polygon(pM[postcode], { label: postcode })
+                let feature = polygon(pM[postcode], { name: postcode })
 
                 feature.properties.center = geojson__getCenter(feature)
                 
                 combined = !combined ? feature: union(combined, feature)
 
-                addFile({ basename: postcode, group: label, content: JSON.stringify(feature) })
+                addFile({ basename: postcode, group: name, content: JSON.stringify(feature) })
             }
         }
 
-        combined.properties.label = label
+        combined.properties.name = name
         combined.properties.center = geojson__getCenter(combined)
 
         addFile({ basename, group: 'region', content: JSON.stringify(combined) })
     }
 }
 
+// build/codes/
+
 function combine_geojson(data)
 {
     let features = []
+    let index = 0
 
-    for (const [,item] of Object.entries(data)) {
+    for (let [, item] of Object.entries(data)) {
+        item.properties.index = index
         features.push(item)
+        index++
     }
 
     return new Buffer.from(JSON.stringify(featureCollection(features)))
@@ -240,4 +277,4 @@ function deploy()
         .pipe(dest('../postcodemap/src/data/'))
 }
 
-exports.default = series(clean, parallel(pcPoly2GeoJson, generate_regions), deploy)
+exports.default = series(clean, parallel(single_postcodes_transfer, generate_regions), deploy)
