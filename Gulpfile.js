@@ -142,12 +142,24 @@ function clean()
 //         .pipe(dest(`build/postcodes`))
 // }
 
+const regions = {
+    "N Ireland": "BT",
+    "Midlands": "CH,CW,HR,WR,DY,WV,TF,ST,WS,B,CV,DE,NG,LE,NN,PE,LN,NR",
+    "Wales": "NP,CF,SA,LL,LD,SY",
+    "Scotland": "AB,DD,EH,FK,G,IV,KA,KW,KY,ML,PA,PH,TD,DG,HS,ZE",
+    "North West England": "CA,LA,BB,PR,BL,OL,M,SK,WA,WN,L,FY",
+    "North East England": "NE,DH,SR,DL,TS,YO,HU,DN,S,HD,WF,HX,BD,LS,HG",
+    "South East England": "OX,RG,SO,PO,GU,SL,HP,LU,MK,SG,AL,WD,HA,UB,TW,KT,RH,BN,TN,CT,ME,DA,BR,CR,SM,EN,CB,IP,CO,CM,SS,IG,RM",
+    "South West England": "TR,PL,TA,DT,BH,SP,BA,BS,SN,GL,EX,TQ",
+    "London": "EC,WC,W,SW,SE,E,N,NW"
+}
+
 function single_postcodes_transfer()
 {
     function modify(name, data)
     {
         data.name = name
-        data.features.forEach((feature, index) => {
+        data.features.forEach((feature) => {
             const { name } = feature.properties
             
             if(feature.geometry.type === 'GeometryCollection')
@@ -155,7 +167,7 @@ function single_postcodes_transfer()
                 feature.geometry = multiPolygon(feature.geometry.geometries.map((item) => item.coordinates)).geometry
             }
 
-            feature.properties = { name, index, center: geojson__getCenter(feature) }
+            feature.properties = { name, center: geojson__getCenter(feature) }
         })
 
         return JSON.stringify(data)
@@ -174,18 +186,6 @@ function single_postcodes_transfer()
         }))
         .pipe(rename({ extname: ".json" }))
         .pipe(dest(`build/postcodes`))
-}
-
-const regions = {
-    "N Ireland": "BT",
-    "Midlands": "CH,CW,HR,WR,DY,WV,TF,ST,WS,B,CV,DE,NG,LE,NN,PE,LN,NR",//"SY"
-    "Wales": "NP,CF,SA,LL,LD,SY",
-    "Scotland": "AB,DD,EH,FK,G,IV,KA,KW,KY,ML,PA,PH,TD,DG",
-    "North West England": "CA,LA,BB,PR,BL,OL,M,SK,WA,WN,L,FY",
-    "North East England": "NE,DH,SR,DL,TS,YO,HU,DN,S,HD,WF,HX,BD,LS,HG",
-    "South East England": "OX,RG,SO,PO,GU,SL,HP,LU,MK,SG,AL,WD,HA,UB,TW,KT,RH,BN,TN,CT,ME,DA,BR,CR,SM,EN,CB,IP,CO,CM,SS,IG,RM",
-    "South West England": "TR,PL,TA,DT,BH,SP,BA,BS,SN,GL,EX,TQ",
-    "London": "EC,WC,W,SW,SE,E,N,NW"
 }
 
 function _generate_regions(data, addFile)
@@ -218,17 +218,47 @@ function _generate_regions(data, addFile)
     }
 }
 
+
+function postcode_index()
+{
+    return src('src/g/*.geojson')
+        .pipe(rename({ extname: '.json' }))
+        .pipe(jsoncombine('postcode-index.json', function(data){
+
+            let map = []
+            let reg = Object.entries(regions).map(([regionName, str]) => ([regionName, str.split(',')]))
+
+            for (let [postcodeArea, item] of Object.entries(data)) {
+                const r = reg.findIndex(([, items]) => items.includes(postcodeArea))
+                
+                if(r < 0) {
+                    throw new Error(postcodeArea)
+                }
+
+                const a = reg[r][1].indexOf(postcodeArea)
+
+                for(let feature of item.features)
+                {
+                    const { name } = feature.properties
+
+                    map.push([name, postcodeArea, a, r])
+                }
+            }
+
+            return Buffer.from(JSON.stringify(map))
+
+        }))
+        .pipe(dest('build/'))
+}
+
 // build/codes/
 
 function combine_geojson(data)
 {
     let features = []
-    let index = 0
 
     for (let [, item] of Object.entries(data)) {
-        item.properties.index = index
         features.push(item)
-        index++
     }
 
     return new Buffer.from(JSON.stringify(featureCollection(features)))
@@ -277,4 +307,4 @@ function deploy()
         .pipe(dest('../postcodemap/src/data/'))
 }
 
-exports.default = series(clean, parallel(single_postcodes_transfer, generate_regions), deploy)
+exports.default = series(clean, parallel(single_postcodes_transfer, generate_regions, postcode_index), deploy)
