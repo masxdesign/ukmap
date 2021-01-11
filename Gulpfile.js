@@ -10,6 +10,7 @@ const jsoncombine = require("gulp-jsoncombine")
 const path = require('path')
 const through2 = require('through2')
 const File = require('vinyl')
+const vftp = require( 'vinyl-ftp' )
 
 const { polygon, featureCollection, multiPolygon } = require('@turf/helpers')
 const { default: union } = require('@turf/union')
@@ -307,4 +308,26 @@ function deploy()
         .pipe(dest('../postcodemap/src/data/'))
 }
 
-exports.default = series(clean, parallel(single_postcodes_transfer, generate_regions, postcode_index), deploy)
+function ftp_deploy()
+{
+    require('gulp-env')({
+        file: '.env',
+        type: 'ini',
+    })
+
+    const conn = vftp.create({
+        host:       process.env.HOST,
+        user:       process.env.USER,
+        password:   process.env.PASSWORD,
+        parallel:   10,
+        port:       21,
+        log:        console.log
+    })
+
+    return src('build/**', { base: 'build', buffer: false })
+        .pipe(conn.newer('/postcodemapgeojson'))
+        .pipe(conn.dest('/postcodemapgeojson'))
+}
+
+exports.default = series(clean, parallel(single_postcodes_transfer, generate_regions, postcode_index), parallel(deploy, ftp_deploy))
+exports.ftp_deploy = ftp_deploy
